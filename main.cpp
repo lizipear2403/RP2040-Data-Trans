@@ -4,12 +4,40 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <RF24.h>
 #include "hardware/spi.h"
 #include "pico/stdlib.h"
-#include "nrf24.h"
 #include "pinout.h"
 
 static uint8_t link_buf[LINK_BUF_SIZE];
+static SPI radio_spi;
+static RF24 radio(NRF_CE, NRF_CSN, NRF_SPI_HZ);
+
+static bool radio_init(void)
+{
+    static const uint8_t transmit_address[] = NRF_TADDR;
+    static const uint8_t receive_address[] = NRF_RADDR;
+    static_assert(sizeof(transmit_address) == NRF_ADDR_SIZE + 1 &&
+                  sizeof(receive_address) == NRF_ADDR_SIZE + 1);
+
+    radio_spi.begin(NRF_SPI, NRF_SCK, NRF_MOSI, NRF_MISO);
+    if (!radio.begin(&radio_spi) || !radio.setDataRate(RF24_2MBPS)) {
+        return false;
+    }
+    radio.setAddressWidth(NRF_ADDR_SIZE);
+    radio.setChannel(NRF_RF_CHANNEL);
+    radio.setPALevel(RF24_PA_MAX);
+    radio.setCRCLength(RF24_CRC_8);
+    radio.setPayloadSize(NRF_PAYLOAD_SIZE);
+    radio.disableDynamicPayloads();
+    radio.setAutoAck(false);
+    radio.setAutoAck(0, true);
+    radio.setRetries(NRF_RETRY_DELAY, NRF_RETRY_COUNT);
+    radio.openReadingPipe(1, receive_address);
+    radio.closeReadingPipe(1);
+    radio.stopListening(transmit_address);
+    return true;
+}
 
 static void link_init(void)
 {
@@ -65,20 +93,19 @@ static void send_frame(uint16_t frame_id, bool radio_ready)
     }
     for (unsigned i = 0; i < count; ++i) {
         uint8_t pkt[NRF_PAYLOAD_SIZE] = {
-            [0] = (uint8_t)frame_id,
-            [1] = (uint8_t)(frame_id >> 8),
-            [FRAME_SUB_INDEX_BYTE] = (uint8_t)i,
-            [FRAME_COUNT_BYTE] = (uint8_t)count,
+            (uint8_t)frame_id, (uint8_t)(frame_id >> 8), (uint8_t)i, (uint8_t)count,
         };
         const size_t offset = i * FRAME_FRAGMENT_SIZE;
         const size_t remaining = len - offset;
         const size_t size = remaining < FRAME_FRAGMENT_SIZE ? remaining : FRAME_FRAGMENT_SIZE;
         memcpy(pkt + FRAME_HEADER_SIZE, jpeg + offset, size);
-        const nrf24_tx_result_t result = nrf24_send(pkt);
-        if (result != NRF24_SENT) {
+        // RF24 单独通过 failureDetected 报告硬件超时。
+        radio.failureDetected = 0;
+        const bool acked = radio.write(pkt, sizeof(pkt));
+        if (!acked || radio.failureDetected) {
             printf("frame=%u length=%lu packet=%u/%u dropped: %s\n",
                    (unsigned)frame_id, (unsigned long)len, i + 1, count,
-                   result == NRF24_MAX_RETRIES ? "MAX_RT" : "TX timeout");
+                   radio.failureDetected ? "radio timeout" : "no ACK");
             return;
         }
     }
@@ -90,7 +117,7 @@ int main(void)
 {
     stdio_init_all();
     link_init();
-    const bool radio_ready = nrf24_init();
+    const bool radio_ready = radio_init();
     printf("nRF24 %s, channel=%u\n", radio_ready ? "ready" : "register check failed", NRF_RF_CHANNEL);
 
     uint16_t frame_id = 0;

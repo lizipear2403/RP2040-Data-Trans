@@ -1,6 +1,6 @@
 # RP2040-Data-Trans
 
-RP2040 作为 SPI 主机，从 [S3-Cam](https://github.com/lizipear2403/S3-Cam) 读完整帧，通过单路 nRF24L01+ 发给 [P4-Recv](https://github.com/lizipear2403/P4-Recv)。使用 Pico SDK 2.x、Arm GNU 工具链、CMake 和 Ninja。
+RP2040 作为 SPI 主机，从 [S3-Cam](https://github.com/lizipear2403/S3-Cam) 读完整帧，通过单路 nRF24L01+ 发给 [P4-Recv](https://github.com/lizipear2403/P4-Recv)。无线驱动使用社区维护的 [RF24 v1.6.2](https://github.com/nRF24/RF24/tree/v1.6.2) Pico SDK 后端。构建使用 Pico SDK 2.x、Arm GNU 工具链、CMake 和 Ninja。
 
 ```sh
 cmake -S . -B build -G Ninja -DPICO_BOARD=pico -DPICO_SDK_PATH=/path/to/pico-sdk
@@ -8,6 +8,8 @@ cmake --build build
 ```
 
 固件 `build/rp2040_data_trans.uf2` 可用于 BOOTSEL 刷写。初始化 Pico SDK 的 `lib/tinyusb` 子模块，以启用 USB CDC 日志。
+
+首次配置由 CMake 获取固定版本的 RF24。已有同版本本地源码时，可以在配置命令中传入 `-DFETCHCONTENT_SOURCE_DIR_RF24=/path/to/RF24`。
 
 | 信号 | S3 GPIO | RP2040 GPIO |
 | --- | ---: | ---: |
